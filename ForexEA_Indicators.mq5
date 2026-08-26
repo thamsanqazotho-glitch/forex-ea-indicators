@@ -42,6 +42,7 @@ double emaBuffer[], rsiBuffer[], macdBuffer[], macdSignalBuffer[], macdHistogram
 double atrBuffer[];
 bool indicatorsReady = false;
 int ticks = 0;
+datetime lastCheckTime = 0;
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -71,7 +72,7 @@ int OnInit()
    ArraySetAsSeries(atrBuffer, true);
    
    Print("EA initialized successfully on ", _Symbol, " ", _Period);
-   Print("Waiting for indicators to load...");
+   Print("Waiting for indicators to load... (50 tick delay)");
    indicatorsReady = false;
    ticks = 0;
    
@@ -83,11 +84,14 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   // Wait for indicators to be ready (first 10 ticks)
+   // Wait for indicators to be ready (first 50 ticks for full initialization)
    ticks++;
-   if(ticks < 10)
+   if(ticks < 50)
    {
-      Print("Waiting for indicators... Tick: ", ticks);
+      if(ticks % 10 == 0)
+      {
+         Print("Initializing... Tick: ", ticks, "/50");
+      }
       return;
    }
    
@@ -98,17 +102,46 @@ void OnTick()
       return;
    }
    
-   // Copy indicator data
+   // Copy indicator data with individual error checking
    int emaResult = CopyBuffer(emaHandle, 0, 0, 3, emaBuffer);
-   int rsiResult = CopyBuffer(rsiHandle, 0, 0, 3, rsiBuffer);
-   int macdResult = CopyBuffer(macdHandle, 0, 0, 3, macdBuffer);
-   int signalResult = CopyBuffer(macdHandle, 1, 0, 3, macdSignalBuffer);
-   int histResult = CopyBuffer(macdHandle, 2, 0, 3, macdHistogram);
-   int atrResult = CopyBuffer(atrHandle, 0, 0, 3, atrBuffer);
-   
-   if(emaResult < 0 || rsiResult < 0 || macdResult < 0 || signalResult < 0 || histResult < 0 || atrResult < 0)
+   if(emaResult < 0)
    {
-      Print("Error copying indicator buffers - EMA:", emaResult, " RSI:", rsiResult, " MACD:", macdResult);
+      Print("EMA copy error: ", emaResult, " Error code: ", GetLastError());
+      return;
+   }
+   
+   int rsiResult = CopyBuffer(rsiHandle, 0, 0, 3, rsiBuffer);
+   if(rsiResult < 0)
+   {
+      Print("RSI copy error: ", rsiResult, " Error code: ", GetLastError());
+      return;
+   }
+   
+   int macdResult = CopyBuffer(macdHandle, 0, 0, 3, macdBuffer);
+   if(macdResult < 0)
+   {
+      Print("MACD copy error: ", macdResult, " Error code: ", GetLastError());
+      return;
+   }
+   
+   int signalResult = CopyBuffer(macdHandle, 1, 0, 3, macdSignalBuffer);
+   if(signalResult < 0)
+   {
+      Print("MACD Signal copy error: ", signalResult, " Error code: ", GetLastError());
+      return;
+   }
+   
+   int histResult = CopyBuffer(macdHandle, 2, 0, 3, macdHistogram);
+   if(histResult < 0)
+   {
+      Print("MACD Histogram copy error: ", histResult, " Error code: ", GetLastError());
+      return;
+   }
+   
+   int atrResult = CopyBuffer(atrHandle, 0, 0, 3, atrBuffer);
+   if(atrResult < 0)
+   {
+      Print("ATR copy error: ", atrResult, " Error code: ", GetLastError());
       return;
    }
    
