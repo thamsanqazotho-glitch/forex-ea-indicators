@@ -40,6 +40,8 @@ input int      MaxTrades = 3;              // Maximum concurrent trades
 int emaHandle, rsiHandle, macdHandle, atrHandle;
 double emaBuffer[], rsiBuffer[], macdBuffer[], macdSignalBuffer[], macdHistogram[];
 double atrBuffer[];
+bool indicatorsReady = false;
+int ticks = 0;
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -69,6 +71,10 @@ int OnInit()
    ArraySetAsSeries(atrBuffer, true);
    
    Print("EA initialized successfully on ", _Symbol, " ", _Period);
+   Print("Waiting for indicators to load...");
+   indicatorsReady = false;
+   ticks = 0;
+   
    return INIT_SUCCEEDED;
 }
 
@@ -77,23 +83,40 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnTick()
 {
+   // Wait for indicators to be ready (first 10 ticks)
+   ticks++;
+   if(ticks < 10)
+   {
+      Print("Waiting for indicators... Tick: ", ticks);
+      return;
+   }
+   
    // Check if we have enough bars
    if(Bars(_Symbol, _Period) < 50)
    {
-      Print("Not enough bars loaded");
+      Print("Not enough bars loaded. Current bars: ", Bars(_Symbol, _Period));
       return;
    }
    
    // Copy indicator data
-   if(CopyBuffer(emaHandle, 0, 0, 3, emaBuffer) < 0 ||
-      CopyBuffer(rsiHandle, 0, 0, 3, rsiBuffer) < 0 ||
-      CopyBuffer(macdHandle, 0, 0, 3, macdBuffer) < 0 ||
-      CopyBuffer(macdHandle, 1, 0, 3, macdSignalBuffer) < 0 ||
-      CopyBuffer(macdHandle, 2, 0, 3, macdHistogram) < 0 ||
-      CopyBuffer(atrHandle, 0, 0, 3, atrBuffer) < 0)
+   int emaResult = CopyBuffer(emaHandle, 0, 0, 3, emaBuffer);
+   int rsiResult = CopyBuffer(rsiHandle, 0, 0, 3, rsiBuffer);
+   int macdResult = CopyBuffer(macdHandle, 0, 0, 3, macdBuffer);
+   int signalResult = CopyBuffer(macdHandle, 1, 0, 3, macdSignalBuffer);
+   int histResult = CopyBuffer(macdHandle, 2, 0, 3, macdHistogram);
+   int atrResult = CopyBuffer(atrHandle, 0, 0, 3, atrBuffer);
+   
+   if(emaResult < 0 || rsiResult < 0 || macdResult < 0 || signalResult < 0 || histResult < 0 || atrResult < 0)
    {
-      Print("Error copying indicator buffers");
+      Print("Error copying indicator buffers - EMA:", emaResult, " RSI:", rsiResult, " MACD:", macdResult);
       return;
+   }
+   
+   // Indicators are ready
+   if(!indicatorsReady)
+   {
+      Print("Indicators ready! Starting EA...");
+      indicatorsReady = true;
    }
    
    // Get current indicator values
