@@ -106,7 +106,6 @@ void OnTick()
    
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
-   double currentPrice = (bid + ask) / 2;
    
    // Check drawdown
    if(!CheckDrawdown())
@@ -133,6 +132,7 @@ void OnTick()
       if(!HasOpenBuy())
       {
          double tp, sl;
+         double pipSize = GetPipSize();
          
          if(UseATR)
          {
@@ -141,7 +141,6 @@ void OnTick()
          }
          else
          {
-            double pipSize = GetPipSize();
             tp = ask + (pipSize * TakeProfitPips);
             sl = ask - (pipSize * StopLossPips);
          }
@@ -161,6 +160,7 @@ void OnTick()
       if(!HasOpenSell())
       {
          double tp, sl;
+         double pipSize = GetPipSize();
          
          if(UseATR)
          {
@@ -169,7 +169,6 @@ void OnTick()
          }
          else
          {
-            double pipSize = GetPipSize();
             tp = bid - (pipSize * TakeProfitPips);
             sl = bid + (pipSize * StopLossPips);
          }
@@ -222,8 +221,6 @@ bool CloseTrade(ulong ticket)
    
    request.action = TRADE_ACTION_DEAL;
    request.symbol = _Symbol;
-   request.type = ORDER_TYPE_SELL;
-   request.position = ticket;
    request.deviation = 10;
    
    if(!PositionSelectByTicket(ticket))
@@ -248,6 +245,8 @@ bool CloseTrade(ulong ticket)
       request.price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    }
    
+   request.position = ticket;
+   
    if(!OrderSend(request, result))
    {
       Print("OrderSend close error: ", GetLastError());
@@ -264,41 +263,45 @@ void CheckExitSignals()
 {
    for(int i = PositionsTotal() - 1; i >= 0; i--)
    {
-      if(PositionSelectByIndex(i))
+      ulong ticket = PositionGetTicket(i);
+      
+      if(ticket == 0)
+         continue;
+      
+      if(!PositionSelectByTicket(ticket))
+         continue;
+      
+      if(PositionGetString(POSITION_SYMBOL) != _Symbol || 
+         PositionGetInteger(POSITION_MAGIC) != MagicNumber)
       {
-         if(PositionGetString(POSITION_SYMBOL) != _Symbol || 
-            PositionGetInteger(POSITION_MAGIC) != MagicNumber)
-         {
-            continue;
-         }
-         
-         ulong ticket = PositionGetTicket(i);
-         ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
-         
-         // Copy MACD data
-         double macdBuf[], macdSigBuf[];
-         ArraySetAsSeries(macdBuf, true);
-         ArraySetAsSeries(macdSigBuf, true);
-         
-         if(CopyBuffer(macdHandle, 0, 0, 3, macdBuf) < 0 ||
-            CopyBuffer(macdHandle, 1, 0, 3, macdSigBuf) < 0)
-         {
-            continue;
-         }
-         
-         // Exit BUY on MACD reversal
-         if(type == POSITION_TYPE_BUY && macdBuf[0] < macdSigBuf[0])
-         {
-            CloseTrade(ticket);
-            Print("BUY position closed - MACD reversal");
-         }
-         
-         // Exit SELL on MACD reversal
-         if(type == POSITION_TYPE_SELL && macdBuf[0] > macdSigBuf[0])
-         {
-            CloseTrade(ticket);
-            Print("SELL position closed - MACD reversal");
-         }
+         continue;
+      }
+      
+      ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+      
+      // Copy MACD data
+      double macdBuf[], macdSigBuf[];
+      ArraySetAsSeries(macdBuf, true);
+      ArraySetAsSeries(macdSigBuf, true);
+      
+      if(CopyBuffer(macdHandle, 0, 0, 3, macdBuf) < 0 ||
+         CopyBuffer(macdHandle, 1, 0, 3, macdSigBuf) < 0)
+      {
+         continue;
+      }
+      
+      // Exit BUY on MACD reversal
+      if(type == POSITION_TYPE_BUY && macdBuf[0] < macdSigBuf[0])
+      {
+         CloseTrade(ticket);
+         Print("BUY position closed - MACD reversal");
+      }
+      
+      // Exit SELL on MACD reversal
+      if(type == POSITION_TYPE_SELL && macdBuf[0] > macdSigBuf[0])
+      {
+         CloseTrade(ticket);
+         Print("SELL position closed - MACD reversal");
       }
    }
 }
@@ -311,7 +314,12 @@ int CountOpenTrades()
    int count = 0;
    for(int i = 0; i < PositionsTotal(); i++)
    {
-      if(PositionSelectByIndex(i))
+      ulong ticket = PositionGetTicket(i);
+      
+      if(ticket == 0)
+         continue;
+      
+      if(PositionSelectByTicket(ticket))
       {
          if(PositionGetString(POSITION_SYMBOL) == _Symbol &&
             PositionGetInteger(POSITION_MAGIC) == MagicNumber)
@@ -330,7 +338,12 @@ bool HasOpenBuy()
 {
    for(int i = 0; i < PositionsTotal(); i++)
    {
-      if(PositionSelectByIndex(i))
+      ulong ticket = PositionGetTicket(i);
+      
+      if(ticket == 0)
+         continue;
+      
+      if(PositionSelectByTicket(ticket))
       {
          if(PositionGetString(POSITION_SYMBOL) == _Symbol &&
             PositionGetInteger(POSITION_MAGIC) == MagicNumber &&
@@ -350,7 +363,12 @@ bool HasOpenSell()
 {
    for(int i = 0; i < PositionsTotal(); i++)
    {
-      if(PositionSelectByIndex(i))
+      ulong ticket = PositionGetTicket(i);
+      
+      if(ticket == 0)
+         continue;
+      
+      if(PositionSelectByTicket(ticket))
       {
          if(PositionGetString(POSITION_SYMBOL) == _Symbol &&
             PositionGetInteger(POSITION_MAGIC) == MagicNumber &&
