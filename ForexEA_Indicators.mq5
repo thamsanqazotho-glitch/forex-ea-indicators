@@ -14,7 +14,6 @@
 #property copyright "Copyright 2024"
 #property link      "https://github.com/thamsanqazotho-glitch/forex-ea-indicators"
 #property version   "1.00"
-#property strict
 
 //--- Input Parameters
 input double   LotSize = 0.1;              // Trade lot size
@@ -107,6 +106,7 @@ void OnTick()
    
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   double currentPrice = (bid + ask) / 2;
    
    // Check drawdown
    if(!CheckDrawdown())
@@ -123,12 +123,12 @@ void OnTick()
    }
    
    // BUY Signal
-   if(currentPrice > currentEMA &&                    // Price above EMA (uptrend)
-      currentEMA > prevEMA &&                         // EMA trending up
-      currentRSI < RSI_Overbought &&                  // RSI not overbought
-      currentRSI > 40 &&                              // RSI confirmation
-      currentMACD > currentSignal &&                  // MACD positive
-      currentMACD > 0)                                // MACD above zero
+   if(ask > currentEMA &&                       // Price above EMA (uptrend)
+      currentEMA > prevEMA &&                   // EMA trending up
+      currentRSI < RSI_Overbought &&            // RSI not overbought
+      currentRSI > 40 &&                        // RSI confirmation
+      currentMACD > currentSignal &&            // MACD positive
+      currentMACD > 0)                          // MACD above zero
    {
       if(!HasOpenBuy())
       {
@@ -141,8 +141,9 @@ void OnTick()
          }
          else
          {
-            tp = ask + (GetPipSize() * TakeProfitPips);
-            sl = ask - (GetPipSize() * StopLossPips);
+            double pipSize = GetPipSize();
+            tp = ask + (pipSize * TakeProfitPips);
+            sl = ask - (pipSize * StopLossPips);
          }
          
          OpenTrade(ORDER_TYPE_BUY, LotSize, ask, sl, tp, "EMA+RSI+MACD BUY Signal");
@@ -150,12 +151,12 @@ void OnTick()
    }
    
    // SELL Signal
-   if(currentPrice < currentEMA &&                    // Price below EMA (downtrend)
-      currentEMA < prevEMA &&                         // EMA trending down
-      currentRSI > RSI_Oversold &&                    // RSI not oversold
-      currentRSI < 60 &&                              // RSI confirmation
-      currentMACD < currentSignal &&                  // MACD negative
-      currentMACD < 0)                                // MACD below zero
+   if(bid < currentEMA &&                       // Price below EMA (downtrend)
+      currentEMA < prevEMA &&                   // EMA trending down
+      currentRSI > RSI_Oversold &&              // RSI not oversold
+      currentRSI < 60 &&                        // RSI confirmation
+      currentMACD < currentSignal &&            // MACD negative
+      currentMACD < 0)                          // MACD below zero
    {
       if(!HasOpenSell())
       {
@@ -168,8 +169,9 @@ void OnTick()
          }
          else
          {
-            tp = bid - (GetPipSize() * TakeProfitPips);
-            sl = bid + (GetPipSize() * StopLossPips);
+            double pipSize = GetPipSize();
+            tp = bid - (pipSize * TakeProfitPips);
+            sl = bid + (pipSize * StopLossPips);
          }
          
          OpenTrade(ORDER_TYPE_SELL, LotSize, bid, sl, tp, "EMA+RSI+MACD SELL Signal");
@@ -224,18 +226,25 @@ bool CloseTrade(ulong ticket)
    request.position = ticket;
    request.deviation = 10;
    
-   PositionSelectByTicket(ticket);
+   if(!PositionSelectByTicket(ticket))
+   {
+      Print("Position not found: ", ticket);
+      return false;
+   }
    
-   if(PositionGetInteger(POSITION_TYPE) == POSITION_TYPE_BUY)
+   ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
+   double posVolume = PositionGetDouble(POSITION_VOLUME);
+   
+   if(posType == POSITION_TYPE_BUY)
    {
       request.type = ORDER_TYPE_SELL;
-      request.volume = PositionGetDouble(POSITION_VOLUME);
+      request.volume = posVolume;
       request.price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    }
    else
    {
       request.type = ORDER_TYPE_BUY;
-      request.volume = PositionGetDouble(POSITION_VOLUME);
+      request.volume = posVolume;
       request.price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    }
    
@@ -267,22 +276,25 @@ void CheckExitSignals()
          ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
          
          // Copy MACD data
-         double macdBuffer[], macdSignalBuffer[];
-         ArraySetAsSeries(macdBuffer, true);
-         ArraySetAsSeries(macdSignalBuffer, true);
+         double macdBuf[], macdSigBuf[];
+         ArraySetAsSeries(macdBuf, true);
+         ArraySetAsSeries(macdSigBuf, true);
          
-         CopyBuffer(macdHandle, 0, 0, 3, macdBuffer);
-         CopyBuffer(macdHandle, 1, 0, 3, macdSignalBuffer);
+         if(CopyBuffer(macdHandle, 0, 0, 3, macdBuf) < 0 ||
+            CopyBuffer(macdHandle, 1, 0, 3, macdSigBuf) < 0)
+         {
+            continue;
+         }
          
          // Exit BUY on MACD reversal
-         if(type == POSITION_TYPE_BUY && macdBuffer[0] < macdSignalBuffer[0])
+         if(type == POSITION_TYPE_BUY && macdBuf[0] < macdSigBuf[0])
          {
             CloseTrade(ticket);
             Print("BUY position closed - MACD reversal");
          }
          
          // Exit SELL on MACD reversal
-         if(type == POSITION_TYPE_SELL && macdBuffer[0] > macdSignalBuffer[0])
+         if(type == POSITION_TYPE_SELL && macdBuf[0] > macdSigBuf[0])
          {
             CloseTrade(ticket);
             Print("SELL position closed - MACD reversal");
@@ -390,5 +402,5 @@ void OnDeinit(const int reason)
    IndicatorRelease(macdHandle);
    IndicatorRelease(atrHandle);
    
-   Print("EA deinitalized");
+   Print("EA deinitialized");
 }
