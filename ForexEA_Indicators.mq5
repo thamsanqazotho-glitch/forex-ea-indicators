@@ -13,7 +13,7 @@
 
 #property copyright "Copyright 2024"
 #property link      "https://github.com/thamsanqazotho-glitch/forex-ea-indicators"
-#property version   "1.00"
+#property version   "1.01"
 
 //--- Input Parameters
 input double   LotSize = 0.1;              // Trade lot size
@@ -41,8 +41,6 @@ int emaHandle, rsiHandle, macdHandle, atrHandle;
 double emaBuffer[], rsiBuffer[], macdBuffer[], macdSignalBuffer[], macdHistogram[];
 double atrBuffer[];
 bool indicatorsReady = false;
-int ticks = 0;
-datetime lastCheckTime = 0;
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
@@ -60,6 +58,7 @@ int OnInit()
       macdHandle == INVALID_HANDLE || atrHandle == INVALID_HANDLE)
    {
       Alert("Failed to create indicator handles");
+      Print("EMA Handle: ", emaHandle, " RSI Handle: ", rsiHandle, " MACD Handle: ", macdHandle, " ATR Handle: ", atrHandle);
       return INIT_FAILED;
    }
    
@@ -72,9 +71,7 @@ int OnInit()
    ArraySetAsSeries(atrBuffer, true);
    
    Print("EA initialized successfully on ", _Symbol, " ", _Period);
-   Print("Waiting for indicators to load... (50 tick delay)");
-   indicatorsReady = false;
-   ticks = 0;
+   Print("All indicator handles created successfully");
    
    return INIT_SUCCEEDED;
 }
@@ -84,64 +81,31 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   // Wait for indicators to be ready (first 50 ticks for full initialization)
-   ticks++;
-   if(ticks < 50)
-   {
-      if(ticks % 10 == 0)
-      {
-         Print("Initializing... Tick: ", ticks, "/50");
-      }
-      return;
-   }
-   
    // Check if we have enough bars
-   if(Bars(_Symbol, _Period) < 50)
+   int barCount = Bars(_Symbol, _Period);
+   if(barCount < 50)
    {
-      Print("Not enough bars loaded. Current bars: ", Bars(_Symbol, _Period));
+      if(!indicatorsReady)
+         Print("Waiting for data... Current bars: ", barCount, "/50");
       return;
    }
    
-   // Copy indicator data with individual error checking
+   // Try to copy indicator data
    int emaResult = CopyBuffer(emaHandle, 0, 0, 3, emaBuffer);
-   if(emaResult < 0)
-   {
-      Print("EMA copy error: ", emaResult, " Error code: ", GetLastError());
-      return;
-   }
-   
    int rsiResult = CopyBuffer(rsiHandle, 0, 0, 3, rsiBuffer);
-   if(rsiResult < 0)
-   {
-      Print("RSI copy error: ", rsiResult, " Error code: ", GetLastError());
-      return;
-   }
-   
    int macdResult = CopyBuffer(macdHandle, 0, 0, 3, macdBuffer);
-   if(macdResult < 0)
-   {
-      Print("MACD copy error: ", macdResult, " Error code: ", GetLastError());
-      return;
-   }
-   
    int signalResult = CopyBuffer(macdHandle, 1, 0, 3, macdSignalBuffer);
-   if(signalResult < 0)
-   {
-      Print("MACD Signal copy error: ", signalResult, " Error code: ", GetLastError());
-      return;
-   }
-   
    int histResult = CopyBuffer(macdHandle, 2, 0, 3, macdHistogram);
-   if(histResult < 0)
-   {
-      Print("MACD Histogram copy error: ", histResult, " Error code: ", GetLastError());
-      return;
-   }
-   
    int atrResult = CopyBuffer(atrHandle, 0, 0, 3, atrBuffer);
-   if(atrResult < 0)
+   
+   // Check if all buffers copied successfully
+   if(emaResult < 0 || rsiResult < 0 || macdResult < 0 || signalResult < 0 || histResult < 0 || atrResult < 0)
    {
-      Print("ATR copy error: ", atrResult, " Error code: ", GetLastError());
+      if(!indicatorsReady)
+      {
+         Print("Waiting for indicators... EMA:", emaResult, " RSI:", rsiResult, " MACD:", macdResult, 
+                " Signal:", signalResult, " Hist:", histResult, " ATR:", atrResult);
+      }
       return;
    }
    
