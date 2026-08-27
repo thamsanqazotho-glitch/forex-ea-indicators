@@ -6,7 +6,7 @@
 
 #property copyright "Copyright 2024"
 #property link      "https://github.com/thamsanqazotho-glitch/forex-ea-indicators"
-#property version   "1.02"
+#property version   "1.03"
 
 //--- Input Parameters
 input double   LotSize = 0.1;              // Trade lot size
@@ -47,6 +47,7 @@ int OnInit()
    
    Print("EA initialized successfully on ", _Symbol, " ", _Period);
    Print("Using MANUAL indicator calculation (no indicator handles)");
+   Print("Account: Demo | Lot Size: ", LotSize);
    
    return INIT_SUCCEEDED;
 }
@@ -89,6 +90,10 @@ void OnTick()
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    
+   Print("EMA: ", NormalizeDouble(currentEMA, Digits()), " RSI: ", NormalizeDouble(currentRSI, 2), 
+         " MACD: ", NormalizeDouble(currentMACD, 5), " Signal: ", NormalizeDouble(currentSignal, 5),
+         " Ask: ", ask, " Bid: ", bid);
+   
    // Check drawdown
    if(!CheckDrawdown())
    {
@@ -113,18 +118,19 @@ void OnTick()
    {
       if(!HasOpenBuy())
       {
+         Print("BUY signal triggered!");
          double tp, sl;
-         double pipSize = GetPipSize();
          
          if(UseATR)
          {
-            tp = ask + (currentATR * 2);
-            sl = ask - currentATR;
+            sl = NormalizeDouble(ask - currentATR, Digits());
+            tp = NormalizeDouble(ask + (currentATR * 2), Digits());
          }
          else
          {
-            tp = ask + (pipSize * TakeProfitPips);
-            sl = ask - (pipSize * StopLossPips);
+            double pipSize = GetPipSize();
+            sl = NormalizeDouble(ask - (pipSize * StopLossPips), Digits());
+            tp = NormalizeDouble(ask + (pipSize * TakeProfitPips), Digits());
          }
          
          OpenTrade(ORDER_TYPE_BUY, LotSize, ask, sl, tp, "EMA+RSI+MACD BUY Signal");
@@ -141,18 +147,19 @@ void OnTick()
    {
       if(!HasOpenSell())
       {
+         Print("SELL signal triggered!");
          double tp, sl;
-         double pipSize = GetPipSize();
          
          if(UseATR)
          {
-            tp = bid - (currentATR * 2);
-            sl = bid + currentATR;
+            sl = NormalizeDouble(bid + currentATR, Digits());
+            tp = NormalizeDouble(bid - (currentATR * 2), Digits());
          }
          else
          {
-            tp = bid - (pipSize * TakeProfitPips);
-            sl = bid + (pipSize * StopLossPips);
+            double pipSize = GetPipSize();
+            sl = NormalizeDouble(bid + (pipSize * StopLossPips), Digits());
+            tp = NormalizeDouble(bid - (pipSize * TakeProfitPips), Digits());
          }
          
          OpenTrade(ORDER_TYPE_SELL, LotSize, bid, sl, tp, "EMA+RSI+MACD SELL Signal");
@@ -276,11 +283,71 @@ double CalculateATR(double &high[], double &low[], double &close[], int period, 
 }
 
 //+------------------------------------------------------------------+
-//| Open a trade                                                     |
+//| Open a trade with proper validation                              |
 //+------------------------------------------------------------------+
 void OpenTrade(ENUM_ORDER_TYPE orderType, double volume, double price, 
                double sl, double tp, string comment)
 {
+   // Validate parameters
+   if(volume <= 0)
+   {
+      Print("Invalid volume: ", volume);
+      return;
+   }
+   
+   if(price <= 0)
+   {
+      Print("Invalid price: ", price);
+      return;
+   }
+   
+   if(sl <= 0)
+   {
+      Print("Invalid stop loss: ", sl);
+      return;
+   }
+   
+   if(tp <= 0)
+   {
+      Print("Invalid take profit: ", tp);
+      return;
+   }
+   
+   // Normalize all prices
+   price = NormalizeDouble(price, Digits());
+   sl = NormalizeDouble(sl, Digits());
+   tp = NormalizeDouble(tp, Digits());
+   
+   // Validate SL and TP for BUY
+   if(orderType == ORDER_TYPE_BUY)
+   {
+      if(sl >= price)
+      {
+         Print("BUY: Stop loss must be below price. SL: ", sl, " Price: ", price);
+         return;
+      }
+      if(tp <= price)
+      {
+         Print("BUY: Take profit must be above price. TP: ", tp, " Price: ", price);
+         return;
+      }
+   }
+   
+   // Validate SL and TP for SELL
+   if(orderType == ORDER_TYPE_SELL)
+   {
+      if(sl <= price)
+      {
+         Print("SELL: Stop loss must be above price. SL: ", sl, " Price: ", price);
+         return;
+      }
+      if(tp >= price)
+      {
+         Print("SELL: Take profit must be below price. TP: ", tp, " Price: ", price);
+         return;
+      }
+   }
+   
    MqlTradeRequest request = {};
    MqlTradeResult result = {};
    
@@ -291,17 +358,20 @@ void OpenTrade(ENUM_ORDER_TYPE orderType, double volume, double price,
    request.price = price;
    request.sl = sl;
    request.tp = tp;
-   request.deviation = 10;
+   request.deviation = 20;
    request.magic = MagicNumber;
    request.comment = comment;
    
+   Print("Sending trade request: Type=", (orderType == ORDER_TYPE_BUY ? "BUY" : "SELL"), 
+         " Price=", price, " SL=", sl, " TP=", tp, " Volume=", volume);
+   
    if(!OrderSend(request, result))
    {
-      Print("OrderSend error: ", GetLastError());
+      Print("OrderSend error: ", GetLastError(), " Retcode: ", result.retcode, " Comment: ", result.comment);
    }
    else
    {
-      Print("Trade opened: ", result.order, " at price ", result.price);
+      Print("Trade opened successfully! Order: ", result.order, " at price: ", result.price);
    }
 }
 
@@ -315,7 +385,7 @@ bool CloseTrade(ulong ticket)
    
    request.action = TRADE_ACTION_DEAL;
    request.symbol = _Symbol;
-   request.deviation = 10;
+   request.deviation = 20;
    
    if(!PositionSelectByTicket(ticket))
    {
@@ -325,20 +395,23 @@ bool CloseTrade(ulong ticket)
    
    ENUM_POSITION_TYPE posType = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
    double posVolume = PositionGetDouble(POSITION_VOLUME);
+   double closePrice = (posType == POSITION_TYPE_BUY) ? 
+                       SymbolInfoDouble(_Symbol, SYMBOL_BID) : 
+                       SymbolInfoDouble(_Symbol, SYMBOL_ASK);
+   
+   closePrice = NormalizeDouble(closePrice, Digits());
    
    if(posType == POSITION_TYPE_BUY)
    {
       request.type = ORDER_TYPE_SELL;
-      request.volume = posVolume;
-      request.price = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    }
    else
    {
       request.type = ORDER_TYPE_BUY;
-      request.volume = posVolume;
-      request.price = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
    }
    
+   request.volume = posVolume;
+   request.price = closePrice;
    request.position = ticket;
    
    if(!OrderSend(request, result))
