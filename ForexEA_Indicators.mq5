@@ -1,19 +1,12 @@
 //+------------------------------------------------------------------+
 //|                        Forex EA - Multi Indicator                |
 //|                    EMA, RSI, and MACD Combination                |
-//|                                                                  |
-//| Entry Logic:                                                    |
-//| BUY:  EMA trend UP + RSI < 70 (not overbought) + MACD positive  |
-//| SELL: EMA trend DOWN + RSI > 30 (not oversold) + MACD negative  |
-//|                                                                  |
-//| Exit Logic:                                                     |
-//| Take Profit: Fixed pip target or MACD reversal                  |
-//| Stop Loss: ATR-based or fixed pips                              |
+//|                    MANUAL CALCULATION VERSION                    |
 //+------------------------------------------------------------------+
 
 #property copyright "Copyright 2024"
 #property link      "https://github.com/thamsanqazotho-glitch/forex-ea-indicators"
-#property version   "1.01"
+#property version   "1.02"
 
 //--- Input Parameters
 input double   LotSize = 0.1;              // Trade lot size
@@ -37,41 +30,23 @@ input double   MaxDrawdown = 2.0;          // Max drawdown % allowed
 input int      MaxTrades = 3;              // Maximum concurrent trades
 
 //--- Global Variables
-int emaHandle, rsiHandle, macdHandle, atrHandle;
-double emaBuffer[], rsiBuffer[], macdBuffer[], macdSignalBuffer[], macdHistogram[];
-double atrBuffer[];
 bool indicatorsReady = false;
+double close[];
+double high[];
+double low[];
 
 //+------------------------------------------------------------------+
 //| Expert initialization function                                   |
 //+------------------------------------------------------------------+
 int OnInit()
 {
-   // Create indicator handles
-   emaHandle = iMA(_Symbol, _Period, EMA_Period, 0, MODE_EMA, PRICE_CLOSE);
-   rsiHandle = iRSI(_Symbol, _Period, RSI_Period, PRICE_CLOSE);
-   macdHandle = iMACD(_Symbol, _Period, MACD_Fast, MACD_Slow, MACD_Signal, PRICE_CLOSE);
-   atrHandle = iATR(_Symbol, _Period, ATR_Period);
-   
-   // Check if handles are valid
-   if(emaHandle == INVALID_HANDLE || rsiHandle == INVALID_HANDLE || 
-      macdHandle == INVALID_HANDLE || atrHandle == INVALID_HANDLE)
-   {
-      Alert("Failed to create indicator handles");
-      Print("EMA Handle: ", emaHandle, " RSI Handle: ", rsiHandle, " MACD Handle: ", macdHandle, " ATR Handle: ", atrHandle);
-      return INIT_FAILED;
-   }
-   
-   // Set array indices
-   ArraySetAsSeries(emaBuffer, true);
-   ArraySetAsSeries(rsiBuffer, true);
-   ArraySetAsSeries(macdBuffer, true);
-   ArraySetAsSeries(macdSignalBuffer, true);
-   ArraySetAsSeries(macdHistogram, true);
-   ArraySetAsSeries(atrBuffer, true);
+   // Set arrays as series
+   ArraySetAsSeries(close, true);
+   ArraySetAsSeries(high, true);
+   ArraySetAsSeries(low, true);
    
    Print("EA initialized successfully on ", _Symbol, " ", _Period);
-   Print("All indicator handles created successfully");
+   Print("Using MANUAL indicator calculation (no indicator handles)");
    
    return INIT_SUCCEEDED;
 }
@@ -81,48 +56,35 @@ int OnInit()
 //+------------------------------------------------------------------+
 void OnTick()
 {
-   // Check if we have enough bars
-   int barCount = Bars(_Symbol, _Period);
-   if(barCount < 50)
+   // Copy price data
+   int copied_close = CopyClose(_Symbol, _Period, 0, 100, close);
+   int copied_high = CopyHigh(_Symbol, _Period, 0, 100, high);
+   int copied_low = CopyLow(_Symbol, _Period, 0, 100, low);
+   
+   // Check if we have enough data
+   if(copied_close < 50 || copied_high < 50 || copied_low < 50)
    {
       if(!indicatorsReady)
-         Print("Waiting for data... Current bars: ", barCount, "/50");
+         Print("Loading data... Close:", copied_close, " High:", copied_high, " Low:", copied_low);
       return;
    }
    
-   // Try to copy indicator data
-   int emaResult = CopyBuffer(emaHandle, 0, 0, 3, emaBuffer);
-   int rsiResult = CopyBuffer(rsiHandle, 0, 0, 3, rsiBuffer);
-   int macdResult = CopyBuffer(macdHandle, 0, 0, 3, macdBuffer);
-   int signalResult = CopyBuffer(macdHandle, 1, 0, 3, macdSignalBuffer);
-   int histResult = CopyBuffer(macdHandle, 2, 0, 3, macdHistogram);
-   int atrResult = CopyBuffer(atrHandle, 0, 0, 3, atrBuffer);
-   
-   // Check if all buffers copied successfully
-   if(emaResult < 0 || rsiResult < 0 || macdResult < 0 || signalResult < 0 || histResult < 0 || atrResult < 0)
-   {
-      if(!indicatorsReady)
-      {
-         Print("Waiting for indicators... EMA:", emaResult, " RSI:", rsiResult, " MACD:", macdResult, 
-                " Signal:", signalResult, " Hist:", histResult, " ATR:", atrResult);
-      }
-      return;
-   }
-   
-   // Indicators are ready
    if(!indicatorsReady)
    {
-      Print("Indicators ready! Starting EA...");
+      Print("Price data loaded! Starting EA...");
       indicatorsReady = true;
    }
    
-   // Get current indicator values
-   double currentEMA = emaBuffer[0];
-   double prevEMA = emaBuffer[1];
-   double currentRSI = rsiBuffer[0];
-   double currentMACD = macdBuffer[0];
-   double currentSignal = macdSignalBuffer[0];
-   double currentATR = atrBuffer[0];
+   // Calculate indicators manually
+   double currentEMA = CalculateEMA(close, EMA_Period, 0);
+   double prevEMA = CalculateEMA(close, EMA_Period, 1);
+   
+   double currentRSI = CalculateRSI(close, RSI_Period, 0);
+   
+   double currentMACD = CalculateMACD(close, MACD_Fast, MACD_Slow, 0);
+   double currentSignal = CalculateSignalLine(close, MACD_Fast, MACD_Slow, MACD_Signal, 0);
+   
+   double currentATR = CalculateATR(high, low, close, ATR_Period, 0);
    
    double bid = SymbolInfoDouble(_Symbol, SYMBOL_BID);
    double ask = SymbolInfoDouble(_Symbol, SYMBOL_ASK);
@@ -198,7 +160,119 @@ void OnTick()
    }
    
    // Check for exit signals
-   CheckExitSignals();
+   CheckExitSignals(currentMACD, currentSignal);
+}
+
+//+------------------------------------------------------------------+
+//| Calculate EMA manually                                            |
+//+------------------------------------------------------------------+
+double CalculateEMA(double &data[], int period, int shift)
+{
+   if(ArraySize(data) < period + shift) return 0;
+   
+   double ema = 0;
+   double multiplier = 2.0 / (period + 1);
+   
+   // Calculate SMA first
+   double sum = 0;
+   for(int i = shift; i < shift + period; i++)
+   {
+      sum += data[i];
+   }
+   ema = sum / period;
+   
+   // Calculate EMA
+   for(int i = shift - 1; i >= 0; i--)
+   {
+      ema = data[i] * multiplier + ema * (1 - multiplier);
+   }
+   
+   return ema;
+}
+
+//+------------------------------------------------------------------+
+//| Calculate RSI manually                                            |
+//+------------------------------------------------------------------+
+double CalculateRSI(double &data[], int period, int shift)
+{
+   if(ArraySize(data) < period + shift + 1) return 50;
+   
+   double gains = 0, losses = 0;
+   
+   for(int i = shift; i < shift + period; i++)
+   {
+      double diff = data[i] - data[i + 1];
+      if(diff > 0)
+         gains += diff;
+      else
+         losses += MathAbs(diff);
+   }
+   
+   double avgGain = gains / period;
+   double avgLoss = losses / period;
+   
+   if(avgLoss == 0)
+      return 100;
+   
+   double rs = avgGain / avgLoss;
+   double rsi = 100 - (100 / (1 + rs));
+   
+   return rsi;
+}
+
+//+------------------------------------------------------------------+
+//| Calculate MACD manually                                           |
+//+------------------------------------------------------------------+
+double CalculateMACD(double &data[], int fast, int slow, int shift)
+{
+   double fastEMA = CalculateEMA(data, fast, shift);
+   double slowEMA = CalculateEMA(data, slow, shift);
+   
+   return fastEMA - slowEMA;
+}
+
+//+------------------------------------------------------------------+
+//| Calculate Signal Line manually                                    |
+//+------------------------------------------------------------------+
+double CalculateSignalLine(double &data[], int fast, int slow, int signal, int shift)
+{
+   if(ArraySize(data) < slow + signal + shift) return 0;
+   
+   // Create MACD array
+   double macdArray[100];
+   for(int i = 0; i < 100; i++)
+   {
+      if(i + shift < ArraySize(data))
+         macdArray[i] = CalculateMACD(data, fast, slow, i + shift);
+   }
+   
+   // Calculate EMA of MACD
+   double signalLine = CalculateEMA(macdArray, signal, shift);
+   
+   return signalLine;
+}
+
+//+------------------------------------------------------------------+
+//| Calculate ATR manually                                            |
+//+------------------------------------------------------------------+
+double CalculateATR(double &high[], double &low[], double &close[], int period, int shift)
+{
+   if(ArraySize(high) < period + shift || ArraySize(low) < period + shift || 
+      ArraySize(close) < period + shift + 1) return 0;
+   
+   double sum = 0;
+   
+   for(int i = shift; i < shift + period; i++)
+   {
+      double tr = high[i] - low[i];
+      double tr2 = MathAbs(high[i] - close[i + 1]);
+      double tr3 = MathAbs(low[i] - close[i + 1]);
+      
+      double trueRange = MathMax(tr, MathMax(tr2, tr3));
+      sum += trueRange;
+   }
+   
+   return sum / period;
 }
 
 //+------------------------------------------------------------------+
@@ -279,7 +353,7 @@ bool CloseTrade(ulong ticket)
 //+------------------------------------------------------------------+
 //| Check for exit signals (MACD reversal)                           |
 //+------------------------------------------------------------------+
-void CheckExitSignals()
+void CheckExitSignals(double currentMACD, double currentSignal)
 {
    for(int i = PositionsTotal() - 1; i >= 0; i--)
    {
@@ -299,26 +373,15 @@ void CheckExitSignals()
       
       ENUM_POSITION_TYPE type = (ENUM_POSITION_TYPE)PositionGetInteger(POSITION_TYPE);
       
-      // Copy MACD data
-      double macdBuf[], macdSigBuf[];
-      ArraySetAsSeries(macdBuf, true);
-      ArraySetAsSeries(macdSigBuf, true);
-      
-      if(CopyBuffer(macdHandle, 0, 0, 3, macdBuf) < 0 ||
-         CopyBuffer(macdHandle, 1, 0, 3, macdSigBuf) < 0)
-      {
-         continue;
-      }
-      
       // Exit BUY on MACD reversal
-      if(type == POSITION_TYPE_BUY && macdBuf[0] < macdSigBuf[0])
+      if(type == POSITION_TYPE_BUY && currentMACD < currentSignal)
       {
          CloseTrade(ticket);
          Print("BUY position closed - MACD reversal");
       }
       
       // Exit SELL on MACD reversal
-      if(type == POSITION_TYPE_SELL && macdBuf[0] > macdSigBuf[0])
+      if(type == POSITION_TYPE_SELL && currentMACD > currentSignal)
       {
          CloseTrade(ticket);
          Print("SELL position closed - MACD reversal");
@@ -434,11 +497,5 @@ double GetPipSize()
 //+------------------------------------------------------------------+
 void OnDeinit(const int reason)
 {
-   // Release indicator handles
-   IndicatorRelease(emaHandle);
-   IndicatorRelease(rsiHandle);
-   IndicatorRelease(macdHandle);
-   IndicatorRelease(atrHandle);
-   
    Print("EA deinitialized");
 }
